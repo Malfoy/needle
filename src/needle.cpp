@@ -590,6 +590,12 @@ int run_needle_minimiser(sharg::parser & parser)
 
     parser.info.short_description = "Calculates minimiser for given experiments.";
 
+    parser.add_flag(minimiser_args.unitigs,
+                    sharg::config{.long_id = "unitigs",
+                                  .description = "Read Logan unitig abundances from ka:f: or km:f: FASTA headers "
+                                                 "instead of counting occurrences. Defaults to cutoff 0. "
+                                                 "Use -k 31 -w 31 for Logan k-mers."});
+
     parser.add_positional_option(sequence_files,
                                  sharg::config{.description =
                                                    "Please provide at least one sequence file OR provide one file "

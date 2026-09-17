@@ -4,6 +4,8 @@
 
 #include "minimiser.hpp"
 
+#include <exception>
+
 #include "misc/calculate_cutoff.hpp"
 #include "misc/check_cutoffs_samples.hpp"
 #include "misc/fill_hash_table.hpp"
@@ -38,6 +40,19 @@ void calculate_minimiser(std::vector<std::filesystem::path> const & sequence_fil
     // Fill hash_table with minimisers.
     for (size_t f = 0; f < minimiser_args.samples[i]; f++)
     {
+        if (minimiser_args.unitigs)
+        {
+            sequence_file_with_id_t fin{sequence_files[file_iterator + f]};
+            fill_hash_table_unitigs(args,
+                                    fin,
+                                    hash_table,
+                                    include_set_table,
+                                    exclude_set_table,
+                                    (minimiser_args.include_file != ""),
+                                    cutoff);
+            continue;
+        }
+
         sequence_file_t fin{sequence_files[file_iterator + f]};
         if constexpr (parallel)
         {
@@ -98,6 +113,10 @@ void minimiser(std::vector<std::filesystem::path> const & sequence_files,
 
     check_cutoffs_samples(sequence_files, minimiser_args.paired, minimiser_args.samples, cutoffs);
 
+    // Read-based file-size cutoffs do not apply to assembled unitigs.
+    if (minimiser_args.unitigs && cutoffs.empty())
+        cutoffs.assign(minimiser_args.samples.size(), 0);
+
     if (minimiser_args.include_file != "")
         get_include_set_table(args, minimiser_args.include_file, include_set_table);
     if (minimiser_args.exclude_file != "")
@@ -126,10 +145,30 @@ void minimiser(std::vector<std::filesystem::path> const & sequence_files,
         seqan3::contrib::bgzf_thread_count = 1u;
         omp_set_num_threads(args.threads);
 
+        std::exception_ptr error;
 #pragma omp parallel for schedule(dynamic, chunk_size)
         for (size_t i = 0; i < minimiser_args.samples.size(); i++)
         {
-            calculate_minimiser(sequence_files, include_set_table, exclude_set_table, args, minimiser_args, i, cutoffs);
+            try
+            {
+                calculate_minimiser(sequence_files,
+                                    include_set_table,
+                                    exclude_set_table,
+                                    args,
+                                    minimiser_args,
+                                    i,
+                                    cutoffs);
+            }
+            catch (...)
+            {
+#pragma omp critical
+                {
+                    if (!error)
+                        error = std::current_exception();
+                }
+            }
         }
+        if (error)
+            std::rethrow_exception(error);
     }
 }

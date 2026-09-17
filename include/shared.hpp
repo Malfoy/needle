@@ -66,6 +66,7 @@ struct minimiser_file_input_arguments
     bool paired = false;           // If true, than experiments are seen as paired-end experiments
     bool experiment_names = false; // Flag, if names of experiment should be stored in a txt file
     bool ram_friendly = false;
+    bool unitigs = false; // Read Logan unitig abundances instead of counting minimiser occurrences.
 };
 
 /*! \brief Function, loading arguments

@@ -4,6 +4,63 @@
 
 #include "misc/fill_hash_table.hpp"
 
+#include <charconv>
+#include <cmath>
+#include <sstream>
+
+namespace
+{
+
+uint16_t unitig_abundance(std::string const & id)
+{
+    std::istringstream header{id};
+    std::string field;
+    header >> field; // Skip the sequence identifier.
+    while (header >> field)
+    {
+        // Some Logan accessions use km:f: instead of ka:f:.
+        if (!field.starts_with("ka:f:") && !field.starts_with("km:f:"))
+            continue;
+
+        double abundance{};
+        auto const [end, error] = std::from_chars(field.data() + 5, field.data() + field.size(), abundance);
+        if (error != std::errc{} || end != field.data() + field.size() || !std::isfinite(abundance) || abundance < 0)
+            throw std::invalid_argument{"Invalid unitig abundance in header: " + id};
+
+        // Preserve Needle's count representation and saturation limit.
+        return static_cast<uint16_t>(std::round(std::min(abundance, 65534.0)));
+    }
+    throw std::invalid_argument{"Missing unitig abundance (ka:f: or km:f:) in header: " + id};
+}
+
+} // namespace
+
+void fill_hash_table_unitigs(minimiser_arguments const & args,
+                             sequence_file_with_id_t & fin,
+                             robin_hood::unordered_node_map<uint64_t, uint16_t> & hash_table,
+                             robin_hood::unordered_set<uint64_t> const & include_set_table,
+                             robin_hood::unordered_set<uint64_t> const & exclude_set_table,
+                             bool const only_include,
+                             uint8_t cutoff)
+{
+    for (auto & [id, seq] : fin)
+    {
+        uint16_t const abundance = unitig_abundance(id);
+        if (abundance <= cutoff)
+            continue;
+
+        for (auto && hash : seqan3::views::minimiser_hash(seq, args.shape, args.w_size, args.s))
+        {
+            if ((only_include && include_set_table.contains(hash))
+                || (!only_include && !exclude_set_table.contains(hash)))
+            {
+                auto & count = hash_table[hash];
+                count = std::max(count, abundance);
+            }
+        }
+    }
+}
+
 // Fill hash table with minimisers greater than the cutoff.
 void fill_hash_table(minimiser_arguments const & args,
                      sequence_file_t & fin,

@@ -99,6 +99,100 @@ Based on the minimiser files, the Needle index can be computed by using the foll
 ./bin/needle ibfmin exp*.minimiser -e 16 -e 32  -f 0.3 -c -o example
 ```
 
+### Build from unitigs (Logan, GGCAT, or Cuttlefish)
+
+`needle minimiser --unitigs` imports precomputed mean k-mer abundances from unitig
+FASTA headers, bypassing occurrence counting in Needle. Each header must contain
+`ka:f:<abundance>` or `km:f:<abundance>`, for example:
+
+```text
+>unitig_0 ka:f:12.5
+ACGTTGCAACGTTGCAACGTTGCAACGTTGCA
+```
+
+Use one unitig file per sample; each file becomes one index bin. Assemble samples
+separately when sample-specific abundances are needed. A pooled graph's single
+abundance per unitig cannot represent separate sample abundances.
+
+The examples below use k=31. Set Needle's `-k` to the assembly k and `-w` to the same
+value to retain every k-mer. Hashing parameters otherwise keep their usual defaults.
+The generated `.minimiser` files use Needle's existing format and can be passed to
+`ibfmin` or `insertmin`.
+
+#### Logan
+
+[Logan unitigs](https://github.com/IndexThePlanet/Logan/blob/main/Unitigs.md) are
+assembled with k=31 and already carry mean abundance in `ka:f:` (or, for some
+accessions, `km:f:`). Download an accession and decompress its `.zst` file first:
+
+```sh
+wget https://s3.amazonaws.com/logan-pub/u/SRR11905265/SRR11905265.unitigs.fa.zst
+zstd -d SRR11905265.unitigs.fa.zst
+needle minimiser SRR11905265.unitigs.fa --unitigs -k 31 -w 31
+needle ibfmin SRR11905265.unitigs.minimiser -e 2 -e 5 -e 10 -f 0.05 -o logan_index
+```
+
+#### GGCAT
+
+Build [GGCAT with its optional `kmer-counters` feature](https://github.com/algbio/ggcat#additional-opt-in-features)
+to include mean abundance in the `km:f:` FASTA tag. For example, with Rust and Cargo
+installed:
+
+```sh
+git clone https://github.com/algbio/ggcat.git
+cargo install --path ggcat/crates/cmdline --locked --features kmer-counters
+```
+
+Assemble one sample's reads into an uncompressed FASTA file, then import it:
+
+```sh
+ggcat build -k 31 -j 8 sample_R1.fastq.gz sample_R2.fastq.gz -o sample.ggcat.unitigs.fa
+needle minimiser sample.ggcat.unitigs.fa --unitigs -k 31 -w 31
+needle ibfmin sample.ggcat.unitigs.minimiser -e 2 -e 5 -e 10 -f 0.05 -o ggcat_index
+```
+
+Needle reads the mean `km:f:` value, not the total `KC:i:` count. GGCAT output
+without the abundance feature is insufficient for this mode. Use FASTA output;
+decompress existing `.lz4` output with `lz4 -d` before importing it.
+
+#### Cuttlefish
+
+Use an abundance-enabled Cuttlefish2, such as the
+[modified version used by Logan](https://github.com/rchikhi/cuttlefish), which writes
+`ka:f:` tags. Standard Cuttlefish output without abundance annotations cannot be
+used directly with `--unitigs`: the original read abundance cannot be recovered
+from unitig sequences alone.
+
+With the abundance-enabled `cuttlefish` executable on your PATH:
+
+```sh
+cuttlefish build --read -s sample.fastq.gz -k 31 -t 8 -o sample.cuttlefish.unitigs
+needle minimiser sample.cuttlefish.unitigs.fa --unitigs -k 31 -w 31
+needle ibfmin sample.cuttlefish.unitigs.minimiser -e 2 -e 5 -e 10 -f 0.05 -o cuttlefish_index
+```
+
+#### Multiple samples and abundance handling
+
+For several samples assembled with the same k, import their unitigs together and
+build one index. Every input file remains a separate sample:
+
+```sh
+needle minimiser sample1.unitigs.fa sample2.unitigs.fa --unitigs -k 31 -w 31 -t 2
+needle ibfmin sample1.unitigs.minimiser sample2.unitigs.minimiser -e 2 -e 5 -e 10 -f 0.05 -o unitig_index
+```
+
+Choose expression thresholds (`-e`) appropriate to your samples, or use `-l` for
+automatic threshold selection. New samples can be added with `insertmin`; import
+them using the same k, window, shape, and seed as the existing uncompressed index.
+
+Abundances are unitig averages, not exact per-k-mer counts. They are rounded to the
+nearest integer (half up) and capped at 65534 to match Needle's count storage. A
+repeated hash keeps the maximum abundance across unitigs and grouped files;
+repeated occurrences do not increase abundance. The default cutoff is 0 in this
+mode, independent of file size; `--cutoff` discards rounded abundances less than or
+equal to the supplied value. Include/exclude filters and sample grouping remain
+available. Missing or invalid abundance tags produce an error.
+
 ### Estimate
 To estimate the expression value of one transcript, a sequence file has to be given
 

@@ -9,6 +9,15 @@
 
 #include "shared.hpp"
 
+// Assign Logan unitig abundances to minimisers, keeping the maximum for repeated hashes.
+void fill_hash_table_unitigs(minimiser_arguments const & args,
+                             sequence_file_with_id_t & fin,
+                             robin_hood::unordered_node_map<uint64_t, uint16_t> & hash_table,
+                             robin_hood::unordered_set<uint64_t> const & include_set_table,
+                             robin_hood::unordered_set<uint64_t> const & exclude_set_table,
+                             bool const only_include = false,
+                             uint8_t cutoff = 0);
+
 // Fill hash table with minimisers greater than the cutoff.
 void fill_hash_table(minimiser_arguments const & args,
                      sequence_file_t & fin,
