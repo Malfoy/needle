@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "../app_test.hpp"
+#include "estimate.hpp"
+#include "ibf.hpp"
 #include "minimiser.hpp"
 #include "misc/fill_hash_table.hpp"
 #include "misc/stream.hpp"
@@ -172,5 +174,37 @@ TEST_F(unitig_test, cli_reports_header_errors)
         app_test_result result = execute_app("minimiser --unitigs -k 31 -w 31 -t 2", mode, "invalid.fa");
         EXPECT_FAILURE(result);
         EXPECT_EQ(result.err, "[Error] Missing unitig abundance (ka:f: or km:f:) in header: SRR1_0\n");
+    }
+}
+
+TEST_F(unitig_test, all_kmers_query_boundaries)
+{
+    std::ofstream{"index.fa"} << ">unitig ka:f:12\nAAAAACCCCCGGGGGTTTTTACGT\n";
+    {
+        std::ofstream queries{"queries.fa"};
+        for (size_t const length : {4u, 65538u, 65539u, 100000u, 3u})
+            queries << ">length" << length << '\n' << std::string(length, 'A') << '\n';
+    }
+    minimiser_file_input_arguments input_args{};
+    input_args.unitigs = true;
+    std::vector<uint8_t> cutoffs{};
+    minimiser({"index.fa"}, args, input_args, cutoffs);
+
+    for (bool const compressed : {false, true})
+    {
+        estimate_ibf_arguments index_args{};
+        index_args.path_out = "index_";
+        index_args.compressed = compressed;
+        index_args.expression_thresholds = {10};
+        std::vector<double> fpr{0.0001};
+        ibf({"index.minimiser"}, index_args, fpr);
+        estimate_arguments query_args{};
+        query_args.path_in = "index_";
+        query_args.search_file = "queries.fa";
+        index_args.path_out = "queries.out";
+        call_estimate(index_args, query_args);
+        EXPECT_EQ(string_from_file("queries.out"),
+                  "length4\t10\t\nlength65538\t10\t\nlength65539\t10\t\n"
+                  "length100000\t10\t\nlength3\t0\t\n");
     }
 }

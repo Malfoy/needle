@@ -37,15 +37,20 @@ void check_ibf(minimiser_arguments const & args,
     std::vector<uint64_t> const minimiser = get_minimiser(seq, args);
     uint64_t const minimiser_count = minimiser.size();
 
-#ifndef NDEBUG
-    if (minimiser_count > std::numeric_limits<uint16_t>::max())
-        log("Warning: 16-bit counter might overflow.");
-#endif
+    if (minimiser_count == 0)
+        return;
 
     // Count minimisers in ibf of current level
     std::vector<float> counter(ibf.bin_count());
-    auto agent = ibf.counting_agent();
-    std::ranges::copy(agent.bulk_count(minimiser), counter.begin());
+    auto count = [&]<typename counter_t>()
+    {
+        auto agent = ibf.template counting_agent<counter_t>();
+        std::ranges::copy(agent.bulk_count(minimiser), counter.begin());
+    };
+    if (minimiser_count > std::numeric_limits<uint16_t>::max())
+        count.template operator()<uint64_t>();
+    else
+        count.template operator()<uint16_t>();
 
     // Defines where the median should be
     float const minimiser_pos = minimiser_count / 2.0;
